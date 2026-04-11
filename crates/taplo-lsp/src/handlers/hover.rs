@@ -13,7 +13,7 @@ use serde_json::Value;
 use taplo::{
     dom::{KeyOrIndex, Keys},
     syntax::SyntaxKind::{
-        self, BOOL, DATE, DATE_TIME_LOCAL, DATE_TIME_OFFSET, IDENT, INTEGER, INTEGER_BIN,
+        self, BOOL, DATE, DATE_TIME_LOCAL, DATE_TIME_OFFSET, FLOAT, IDENT, INTEGER, INTEGER_BIN,
         INTEGER_HEX, INTEGER_OCT, MULTI_LINE_STRING, MULTI_LINE_STRING_LITERAL, STRING,
         STRING_LITERAL, TIME,
     },
@@ -291,5 +291,6 @@ fn is_primitive(kind: SyntaxKind) -> bool {
             | INTEGER_HEX
             | INTEGER_OCT
             | INTEGER_BIN
+            | FLOAT
     )
 }
