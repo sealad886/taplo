@@ -111,21 +111,49 @@ pub(crate) async fn hover<E: Environment>(
         if position_info.syntax.kind() == SyntaxKind::IDENT {
             keys = lookup_keys(doc.dom.clone(), &keys);
 
-            // We're interested in the array itself, not its item type.
-            while let Some(KeyOrIndex::Index(_)) = keys.iter().last() {
-                keys = keys.skip_right(1);
+            // Determine if we're in an array of tables context
+            let is_in_array_of_tables = query.in_table_array_header();
+
+            // For array of tables headers, we want to show both array and items info
+            // For properties inside arrays, we want the items schema
+            // For regular properties, we want the property schema (remove indices)
+            let keys_with_index = keys.clone();
+            let mut keys_without_index = keys.clone();
+            while let Some(KeyOrIndex::Index(_)) = keys_without_index.iter().last() {
+                keys_without_index = keys_without_index.skip_right(1);
             }
 
-            let schemas = match ws
+            // Get schemas at both paths to potentially combine information
+            let schemas_with_index = if keys_with_index != keys_without_index {
+                ws.schemas
+                    .schemas_at_path(&schema_association.url, &value, &keys_with_index)
+                    .await
+                    .ok()
+            } else {
+                None
+            };
+
+            let schemas_without_index = ws
                 .schemas
-                .schemas_at_path(&schema_association.url, &value, &keys)
+                .schemas_at_path(&schema_association.url, &value, &keys_without_index)
                 .await
-            {
-                Ok(s) => s,
-                Err(error) => {
-                    tracing::error!(?error, "schema resolution failed");
-                    return Ok(None);
-                }
+                .ok();
+
+            // Determine which schemas to use based on context
+            let schemas = if is_in_array_of_tables {
+                // For array of tables headers like [[plugins]], show items schema
+                schemas_with_index.or(schemas_without_index)
+            } else if schemas_with_index.is_some() {
+                // For properties inside arrays, prefer items schema
+                schemas_with_index
+            } else {
+                // For regular properties, use array container schema
+                schemas_without_index
+            };
+
+            let Some(schemas) = schemas else {
+                tracing::error!("schema resolution failed");
+                return Ok(None);
             };
 
             let content = schemas
