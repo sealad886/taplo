@@ -463,6 +463,14 @@ pub struct PositionInfo {
 }
 
 fn full_range(keys: &Keys, node: &Node) -> TextRange {
+    if keys
+        .iter()
+        .last()
+        .is_none_or(|segment| matches!(segment, KeyOrIndex::Index(_)))
+    {
+        return join_ranges(node.text_ranges(true));
+    }
+
     let Some(last_key) = keys
         .iter()
         .filter_map(KeyOrIndex::as_key)
