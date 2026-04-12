@@ -5,6 +5,7 @@ import { exit } from "process";
 import { RpcMessage, TaploLsp } from "@taplo/lsp";
 import fetch, { Headers, Request, Response } from "node-fetch";
 import glob from "fast-glob";
+import { normalizeRpcMessage } from "./lspMessage";
 
 let taplo: TaploLsp;
 let initPromise: Promise<TaploLsp> | undefined;
