@@ -4,8 +4,9 @@ import {
 } from "vscode-languageserver-protocol/browser";
 
 import { TaploLsp, RpcMessage } from "@taplo/lsp";
+import { normalizeRpcMessage } from "./lspMessage";
 
-const worker: Worker = self as any;
+const worker = globalThis as any;
 
 const writer = new BrowserMessageWriter(worker);
 const reader = new BrowserMessageReader(worker);
@@ -18,6 +19,7 @@ reader.listen(async message => {
       {
         cwd: () => "/",
         envVar: () => "",
+        envVars: () => [],
         findConfigFile: () => undefined,
         glob: () => [],
         isAbsolute: () => true,
@@ -38,7 +40,7 @@ reader.listen(async message => {
       },
       {
         onMessage(message) {
-          writer.write(message);
+          writer.write(normalizeRpcMessage(message));
         },
       }
     );

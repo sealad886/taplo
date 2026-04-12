@@ -5,6 +5,7 @@ import { exit } from "process";
 import { RpcMessage, TaploLsp } from "@taplo/lsp";
 import fetch, { Headers, Request, Response } from "node-fetch";
 import glob from "fast-glob";
+import { normalizeRpcMessage } from "./lspMessage";
 
 let taplo: TaploLsp;
 
@@ -57,7 +58,7 @@ process.on("message", async (d: RpcMessage) => {
       },
       {
         onMessage(message) {
-          process.send(message);
+          process.send(normalizeRpcMessage(message));
         },
       }
     );
