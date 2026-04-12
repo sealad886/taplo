@@ -168,10 +168,11 @@ pub async fn completion<E: Environment>(
         return Ok(Some(CompletionResponse::Array(
             array_of_objects_schemas
                 .map(|(full_key, _, s)| {
-                    // For array of tables, show documentation from the items schema
+                    // For array of tables, prefer documentation from the items schema,
+                    // but fall back to the array schema when items has no docs.
                     let items_schema = &s["items"];
                     let item_doc = if !items_schema.is_null() {
-                        documentation(items_schema)
+                        documentation(items_schema).or_else(|| documentation(&s))
                     } else {
                         documentation(&s)
                     };
