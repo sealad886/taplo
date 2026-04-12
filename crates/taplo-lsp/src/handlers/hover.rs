@@ -123,14 +123,17 @@ pub(crate) async fn hover<E: Environment>(
                 keys_without_index = keys_without_index.skip_right(1);
             }
 
-            // Get schemas at both paths to potentially combine information
+            // Get schemas at both paths to potentially combine information.
+            // Normalize empty vecs to None so that Option::or() falls back correctly
+            // when a path resolves successfully but matches zero schemas.
             let schemas_with_index = if keys_with_index != keys_without_index {
                 match ws
                     .schemas
                     .schemas_at_path(&schema_association.url, &value, &keys_with_index)
                     .await
                 {
-                    Ok(s) => Some(s),
+                    Ok(s) if !s.is_empty() => Some(s),
+                    Ok(_) => None,
                     Err(err) => {
                         tracing::debug!("schema resolution failed for indexed path: {err}");
                         None
@@ -145,7 +148,8 @@ pub(crate) async fn hover<E: Environment>(
                 .schemas_at_path(&schema_association.url, &value, &keys_without_index)
                 .await
             {
-                Ok(s) => Some(s),
+                Ok(s) if !s.is_empty() => Some(s),
+                Ok(_) => None,
                 Err(err) => {
                     tracing::debug!("schema resolution failed for non-indexed path: {err}");
                     None
