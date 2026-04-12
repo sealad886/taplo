@@ -12,38 +12,42 @@ const writer = new BrowserMessageWriter(worker);
 const reader = new BrowserMessageReader(worker);
 
 let taplo: TaploLsp;
+let initPromise: Promise<TaploLsp> | undefined;
 
 reader.listen(async message => {
-  if (!taplo) {
-    taplo = await TaploLsp.initialize(
-      {
-        cwd: () => "/",
-        envVar: () => "",
-        envVars: () => [],
-        findConfigFile: () => undefined,
-        glob: () => [],
-        isAbsolute: () => true,
-        now: () => new Date(),
-        readFile: () => Promise.reject("not implemented"),
-        writeFile: () => Promise.reject("not implemented"),
-        stderr: async (bytes: Uint8Array) => {
-          console.log(new TextDecoder().decode(bytes));
-          return bytes.length;
+  if (typeof taplo === "undefined") {
+    if (!initPromise) {
+      initPromise = TaploLsp.initialize(
+        {
+          cwd: () => "/",
+          envVar: () => "",
+          envVars: () => [],
+          findConfigFile: () => undefined,
+          glob: () => [],
+          isAbsolute: () => true,
+          now: () => new Date(),
+          readFile: () => Promise.reject("not implemented"),
+          writeFile: () => Promise.reject("not implemented"),
+          stderr: async (bytes: Uint8Array) => {
+            console.log(new TextDecoder().decode(bytes));
+            return bytes.length;
+          },
+          stdErrAtty: () => false,
+          stdin: () => Promise.reject("not implemented"),
+          stdout: async (bytes: Uint8Array) => {
+            console.log(new TextDecoder().decode(bytes));
+            return bytes.length;
+          },
+          urlToFilePath: (url: string) => url.slice("file://".length),
         },
-        stdErrAtty: () => false,
-        stdin: () => Promise.reject("not implemented"),
-        stdout: async (bytes: Uint8Array) => {
-          console.log(new TextDecoder().decode(bytes));
-          return bytes.length;
-        },
-        urlToFilePath: (url: string) => url.slice("file://".length),
-      },
-      {
-        onMessage(message) {
-          writer.write(normalizeRpcMessage(message));
-        },
-      }
-    );
+        {
+          onMessage(message) {
+            writer.write(normalizeRpcMessage(message));
+          },
+        }
+      );
+    }
+    taplo = await initPromise;
   }
 
   taplo.send(message as RpcMessage);
