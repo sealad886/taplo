@@ -466,7 +466,7 @@ fn full_range(keys: &Keys, node: &Node) -> TextRange {
     if keys
         .iter()
         .last()
-        .is_none_or(|segment| matches!(segment, KeyOrIndex::Index(_)))
+        .map_or(true, |segment| matches!(segment, KeyOrIndex::Index(_)))
     {
         return join_ranges(node.text_ranges(true));
     }
