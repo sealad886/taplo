@@ -79,3 +79,41 @@ test("normalizeRpcMessage preserves arrays while normalizing Map entries inside 
     },
   });
 });
+
+test("normalizeRpcMessage converts undefined result to null (serde_wasm_bindgen compat)", () => {
+  // serde_wasm_bindgen serializes serde_json::Value::Null as JS undefined.
+  // Without conversion, process.send() JSON serialization drops undefined
+  // properties, causing "neither result nor error" LSP client errors.
+  const rawMessage = {
+    jsonrpc: "2.0",
+    id: 42,
+    result: undefined,
+  } as any;
+
+  const normalized = normalizeRpcMessage(rawMessage);
+  assert.deepEqual(normalized, {
+    jsonrpc: "2.0",
+    id: 42,
+    result: null,
+  });
+});
+
+test("normalizeRpcMessage converts nested undefined values to null", () => {
+  const rawMessage = new Map<string, any>([
+    ["jsonrpc", "2.0"],
+    ["id", 5],
+    ["result", new Map<string, any>([
+      ["data", undefined],
+      ["items", [undefined, "valid", undefined]],
+    ])],
+  ]) as any;
+
+  assert.deepEqual(normalizeRpcMessage(rawMessage), {
+    jsonrpc: "2.0",
+    id: 5,
+    result: {
+      data: null,
+      items: [null, "valid", null],
+    },
+  });
+});

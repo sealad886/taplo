@@ -1,6 +1,12 @@
 import { RpcMessage } from "@taplo/lsp";
 
 function normalizeValue(value: unknown): unknown {
+  // serde_wasm_bindgen may serialize null/unit as undefined;
+  // convert to null so values survive JSON serialization in Node.js IPC.
+  if (value === undefined) {
+    return null;
+  }
+
   if (value instanceof Map) {
     return Object.fromEntries(
       Array.from(value.entries(), ([key, entryValue]) => [
