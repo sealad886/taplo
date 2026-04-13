@@ -434,16 +434,16 @@ pub fn lookup_keys(root: Node, keys: &Keys) -> Keys {
     let mut node = root;
     let mut new_keys = Keys::empty();
 
-    let keys_vec: Vec<_> = keys.iter().collect();
-    for (i, key) in keys_vec.iter().enumerate() {
-        node = node.get(*key);
-        new_keys = new_keys.join((*key).clone());
+    let mut iter = keys.iter().peekable();
+    while let Some(key) = iter.next() {
+        node = node.get(key);
+        new_keys = new_keys.join(key.clone());
         if let Some(arr) = node.as_array() {
             // Only append an array index if the next key in the path isn't
             // already an index — position_info_at already provides one for
             // array-of-tables entries, and duplicating it breaks schema lookup.
-            let next_is_index = keys_vec
-                .get(i + 1)
+            let next_is_index = iter
+                .peek()
                 .map_or(false, |k| matches!(k, KeyOrIndex::Index(_)));
             if !next_is_index {
                 new_keys = new_keys.join(arr.items().read().len().saturating_sub(1));

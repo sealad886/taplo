@@ -1,8 +1,8 @@
-// Diagnostic test: trace the hover code path for keys inside [[array_of_tables]]
+// Assertion-based tests for array-of-tables hover/query code paths.
 //
-// This reproduces the scenario where:
-//   - hover on VALUE works (shows description)
-//   - hover on KEY does not work (shows nothing)
+// These verify that query resolution and lookup_keys produce the correct
+// key paths and syntax kinds for keys, values, and headers inside
+// [[array_of_tables]] entries — the core logic used by the hover handler.
 
 use taplo::{
     dom::{node::Key, KeyOrIndex, Keys, Node},
@@ -11,7 +11,6 @@ use taplo::{
     syntax::SyntaxKind,
 };
 
-// Re-use the query module from taplo-lsp
 use taplo_lsp::query::{lookup_keys, Query};
 
 const TOML_DOC: &str = r#"[training]
@@ -32,76 +31,20 @@ fn parse_doc() -> Node {
     parsed.into_dom()
 }
 
-#[test]
-fn test_dom_keys_for_name_key() {
-    let root = parse_doc();
-
-    println!("\n=== flat_iter output ===");
-    for (keys, node) in root.flat_iter() {
-        let keys_debug: Vec<String> = keys.iter().map(|k| format!("{k:?}")).collect();
-        let text_ranges: Vec<_> = node.text_ranges(false).collect();
-        println!(
-            "  keys=[{}]  node_kind={:?}  ranges={:?}",
-            keys_debug.join(", "),
-            std::mem::discriminant(&node),
-            text_ranges,
-        );
-    }
+/// Helper: extract key path segments as strings from a `Keys`.
+fn key_path(keys: &Keys) -> Vec<String> {
+    keys.iter()
+        .map(|segment| match segment {
+            KeyOrIndex::Key(k) => k.value().to_owned(),
+            KeyOrIndex::Index(idx) => idx.to_string(),
+        })
+        .collect()
 }
 
-#[test]
-fn test_query_at_key_name() {
-    let root = parse_doc();
-
-    // Find the byte offset of the first "name" key in "name = \"phase_one\""
-    let name_offset = TOML_DOC
-        .find("name")
-        .expect("could not find 'name' in TOML doc");
-    println!("\n=== Querying at 'name' key offset={name_offset} ===");
-    println!("Context: {:?}", &TOML_DOC[name_offset..name_offset + 20]);
-
-    let query = Query::at(&root, TextSize::from(name_offset as u32));
-
-    // Check before
-    if let Some(before) = &query.before {
-        println!(
-            "  before.syntax: kind={:?} text={:?}",
-            before.syntax.kind(),
-            before.syntax.text()
-        );
-        if let Some((keys, _node)) = &before.dom_node {
-            let keys_debug: Vec<String> = keys.iter().map(|k| format!("{k:?}")).collect();
-            println!("  before.dom_node keys: [{}]", keys_debug.join(", "));
-        } else {
-            println!("  before.dom_node: None");
-        }
-    } else {
-        println!("  before: None");
-    }
-
-    // Check after
-    if let Some(after) = &query.after {
-        println!(
-            "  after.syntax: kind={:?} text={:?}",
-            after.syntax.kind(),
-            after.syntax.text()
-        );
-        if let Some((keys, _node)) = &after.dom_node {
-            let keys_debug: Vec<String> = keys.iter().map(|k| format!("{k:?}")).collect();
-            println!("  after.dom_node keys: [{}]", keys_debug.join(", "));
-        } else {
-            println!("  after.dom_node: None");
-        }
-    } else {
-        println!("  after: None");
-    }
-
-    // Check header_key
-    let header_key = query.header_key();
-    println!("  header_key: {:?}", header_key.as_ref().map(|h| h.to_string()));
-
-    // Determine position_info (same logic as hover handler)
-    let position_info = query
+/// Helper: select the hover-relevant position info from a query
+/// (same logic as the hover handler).
+fn selected_position_info(query: &Query) -> Option<taplo_lsp::query::PositionInfo> {
+    query
         .before
         .clone()
         .filter(|p| {
@@ -125,149 +68,151 @@ fn test_query_at_key_name() {
                             | SyntaxKind::FLOAT
                     )
             })
-        });
-
-    if let Some(pi) = &position_info {
-        println!(
-            "\n  position_info: kind={:?} text={:?}",
-            pi.syntax.kind(),
-            pi.syntax.text()
-        );
-
-        if let Some((keys, _node)) = &pi.dom_node {
-            let keys_debug: Vec<String> = keys.iter().map(|k| format!("{k:?}")).collect();
-            println!("  pi.dom_node keys: [{}]", keys_debug.join(", "));
-
-            let mut keys = keys.clone();
-
-            // Check header_key adjustment
-            if let Some(ref header_key) = header_key {
-                let key_idx = header_key
-                    .descendants_with_tokens()
-                    .filter(|t| t.kind() == SyntaxKind::IDENT)
-                    .position(|t| t.as_token().unwrap() == &pi.syntax);
-                println!("  header_key key_idx: {:?}", key_idx);
-                if let Some(key_idx) = key_idx {
-                    keys = lookup_keys(
-                        root.clone(),
-                        &Keys::new(keys.into_iter().take(key_idx + 1)),
-                    );
-                    println!(
-                        "  keys after header_key adjustment: [{}]",
-                        keys.iter()
-                            .map(|k| format!("{k:?}"))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    );
-                }
-            }
-
-            // Check dom.path
-            let node = root.path(&keys);
-            println!("  dom.path(&keys) exists: {}", node.is_some());
-
-            if pi.syntax.kind() == SyntaxKind::IDENT {
-                println!("\n  === IDENT path (key hover) ===");
-                let lookup = lookup_keys(root.clone(), &keys);
-                let lookup_debug: Vec<String> =
-                    lookup.iter().map(|k| format!("{k:?}")).collect();
-                println!("  after lookup_keys: [{}]", lookup_debug.join(", "));
-
-                // Strip trailing Index
-                let mut stripped = lookup;
-                while let Some(KeyOrIndex::Index(_)) = stripped.iter().last() {
-                    stripped = stripped.skip_right(1);
-                }
-                let stripped_debug: Vec<String> =
-                    stripped.iter().map(|k| format!("{k:?}")).collect();
-                println!("  after stripping trailing Index: [{}]", stripped_debug.join(", "));
-                println!("  -> These are the keys used for schema lookup in IDENT path");
-            }
-        } else {
-            println!("  pi.dom_node: None  ← THIS WOULD CAUSE EARLY RETURN");
-        }
-    } else {
-        println!("\n  position_info: None  ← THIS WOULD CAUSE EARLY RETURN");
-    }
+        })
 }
 
 #[test]
-fn test_query_at_value() {
+fn flat_iter_contains_expected_array_of_tables_entries() {
     let root = parse_doc();
 
-    // Find the byte offset of "phase_one" (the value)
+    let all_paths: Vec<Vec<String>> = root
+        .flat_iter()
+        .map(|(keys, _)| key_path(&keys))
+        .collect();
+
+    // The document should contain entries for:
+    //   training.batch_size
+    //   training.curriculum[0].name
+    //   training.curriculum[0].weight
+    //   training.curriculum[1].name
+    //   training.curriculum[1].weight
+    assert!(
+        all_paths.iter().any(|p| p == &["training", "batch_size"]),
+        "expected [training, batch_size] in flat_iter, got: {all_paths:?}"
+    );
+    assert!(
+        all_paths
+            .iter()
+            .any(|p| p == &["training", "curriculum", "0", "name"]),
+        "expected [training, curriculum, 0, name] in flat_iter, got: {all_paths:?}"
+    );
+    assert!(
+        all_paths
+            .iter()
+            .any(|p| p == &["training", "curriculum", "1", "name"]),
+        "expected [training, curriculum, 1, name] in flat_iter, got: {all_paths:?}"
+    );
+    assert!(
+        all_paths
+            .iter()
+            .any(|p| p == &["training", "curriculum", "0", "weight"]),
+        "expected [training, curriculum, 0, weight] in flat_iter, got: {all_paths:?}"
+    );
+}
+
+#[test]
+fn query_at_key_name_resolves_to_ident_with_dom_node() {
+    let root = parse_doc();
+
+    let name_offset = TOML_DOC
+        .find("name")
+        .expect("could not find 'name' in TOML doc");
+
+    let query = Query::at(&root, TextSize::from(name_offset as u32));
+    let pi = selected_position_info(&query)
+        .expect("position_info should be Some for a key IDENT");
+
+    // The syntax token should be an IDENT with text "name"
+    assert_eq!(pi.syntax.kind(), SyntaxKind::IDENT);
+    assert_eq!(pi.syntax.text(), "name");
+
+    // The dom_node should exist and contain the key path through the
+    // first array-of-tables entry
+    let (keys, _node) = pi.dom_node.as_ref().expect("dom_node should be present");
+    let path = key_path(keys);
+    assert_eq!(
+        path,
+        vec!["training", "curriculum", "0", "name"],
+        "dom_node keys for 'name' key"
+    );
+}
+
+#[test]
+fn query_at_key_name_header_key_is_none() {
+    let root = parse_doc();
+
+    // "name" is an entry key, not a header key
+    let name_offset = TOML_DOC
+        .find("name")
+        .expect("could not find 'name' in TOML doc");
+    let query = Query::at(&root, TextSize::from(name_offset as u32));
+
+    assert!(
+        query.header_key().is_none(),
+        "entry key 'name' should not have a header_key"
+    );
+}
+
+#[test]
+fn query_at_string_value_resolves_to_string_kind() {
+    let root = parse_doc();
+
+    // Move past the opening quote to land on the STRING token
     let value_offset = TOML_DOC
         .find("\"phase_one\"")
-        .expect("could not find value in TOML doc");
-    // Move inside the quotes to hit STRING kind
-    let value_offset = value_offset + 1; // skip opening quote
-    println!("\n=== Querying at value offset={value_offset} ===");
-    println!("Context: {:?}", &TOML_DOC[value_offset..value_offset + 10]);
+        .expect("could not find value in TOML doc")
+        + 1;
 
     let query = Query::at(&root, TextSize::from(value_offset as u32));
+    let pi = selected_position_info(&query)
+        .expect("position_info should be Some for a string value");
 
-    if let Some(after) = &query.after {
-        println!(
-            "  after.syntax: kind={:?} text={:?}",
-            after.syntax.kind(),
-            after.syntax.text()
-        );
-        if let Some((keys, _node)) = &after.dom_node {
-            let keys_debug: Vec<String> = keys.iter().map(|k| format!("{k:?}")).collect();
-            println!("  after.dom_node keys: [{}]", keys_debug.join(", "));
-            println!("  -> These are the keys used for schema lookup in is_primitive path");
-        }
-    }
+    assert_eq!(pi.syntax.kind(), SyntaxKind::STRING);
+
+    let (keys, _node) = pi.dom_node.as_ref().expect("dom_node should be present");
+    let path = key_path(keys);
+    assert_eq!(
+        path,
+        vec!["training", "curriculum", "0", "name"],
+        "dom_node keys for the 'phase_one' string value"
+    );
 }
 
 #[test]
-fn test_query_at_header_curriculum() {
+fn query_at_header_curriculum_resolves_to_ident_with_header_key() {
     let root = parse_doc();
 
-    // Find the byte offset of "curriculum" in [[training.curriculum]]
     let curriculum_offset = TOML_DOC
         .find("curriculum")
         .expect("could not find 'curriculum' in TOML doc");
-    println!("\n=== Querying at header 'curriculum' offset={curriculum_offset} ===");
-    println!(
-        "Context: {:?}",
-        &TOML_DOC[curriculum_offset..curriculum_offset + 15]
-    );
 
     let query = Query::at(&root, TextSize::from(curriculum_offset as u32));
 
-    if let Some(before) = &query.before {
-        println!(
-            "  before.syntax: kind={:?} text={:?}",
-            before.syntax.kind(),
-            before.syntax.text()
-        );
-    }
-    if let Some(after) = &query.after {
-        println!(
-            "  after.syntax: kind={:?} text={:?}",
-            after.syntax.kind(),
-            after.syntax.text()
-        );
-        if let Some((keys, _node)) = &after.dom_node {
-            let keys_debug: Vec<String> = keys.iter().map(|k| format!("{k:?}")).collect();
-            println!("  after.dom_node keys: [{}]", keys_debug.join(", "));
-        }
-    }
+    // "curriculum" inside [[training.curriculum]] should be an IDENT
+    let pi = selected_position_info(&query)
+        .expect("position_info should be Some for header IDENT");
+    assert_eq!(pi.syntax.kind(), SyntaxKind::IDENT);
+    assert_eq!(pi.syntax.text(), "curriculum");
 
+    // It should be inside a table array header
+    assert!(
+        query.in_table_array_header(),
+        "curriculum should be in a table array header"
+    );
+
+    // header_key should be present (this is a header, not an entry key)
     let header_key = query.header_key();
-    println!("  header_key: {:?}", header_key.as_ref().map(|h| h.to_string()));
+    assert!(
+        header_key.is_some(),
+        "header_key should be Some for a table array header"
+    );
 }
 
 #[test]
-fn test_lookup_keys_with_index() {
+fn lookup_keys_appends_index_for_array_without_existing_index() {
     let root = parse_doc();
 
-    // Simulate the keys that position_info_at would produce for "name" inside
-    // the first [[training.curriculum]] entry
-    println!("\n=== lookup_keys traces ===");
-
-    // Path WITHOUT index (as if we just had the key names):
+    // Path WITHOUT index — lookup_keys should append the array index
     let keys_without_idx = Keys::new(
         [
             KeyOrIndex::Key(Key::from("training")),
@@ -276,16 +221,20 @@ fn test_lookup_keys_with_index() {
         .into_iter(),
     );
     let result = lookup_keys(root.clone(), &keys_without_idx);
-    println!(
-        "  lookup_keys([training, curriculum]) = [{}]",
-        result
-            .iter()
-            .map(|k| format!("{k:?}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
+    let path = key_path(&result);
 
-    // Path WITH index (as position_info_at provides for array-of-tables):
+    assert_eq!(
+        path,
+        vec!["training", "curriculum", "1"],
+        "lookup_keys should append last array index when no index follows"
+    );
+}
+
+#[test]
+fn lookup_keys_preserves_existing_index_without_duplication() {
+    let root = parse_doc();
+
+    // Path WITH index — lookup_keys must NOT duplicate the index
     let keys_with_idx = Keys::new(
         [
             KeyOrIndex::Key(Key::from("training")),
@@ -296,12 +245,11 @@ fn test_lookup_keys_with_index() {
         .into_iter(),
     );
     let result = lookup_keys(root.clone(), &keys_with_idx);
-    println!(
-        "  lookup_keys([training, curriculum, Index(0), name]) = [{}]",
-        result
-            .iter()
-            .map(|k| format!("{k:?}"))
-            .collect::<Vec<_>>()
-            .join(", ")
+    let path = key_path(&result);
+
+    assert_eq!(
+        path,
+        vec!["training", "curriculum", "0", "name"],
+        "lookup_keys should preserve existing index without adding another"
     );
 }
