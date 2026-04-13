@@ -65,7 +65,13 @@ process.on("message", async (d: RpcMessage) => {
         }
       );
     }
-    taplo = await initPromise;
+    try {
+      taplo = await initPromise;
+    } catch (e) {
+      initPromise = undefined;
+      process.stderr.write(`taplo LSP failed to initialize: ${e}\n`);
+      return;
+    }
   }
 
   taplo.send(d);

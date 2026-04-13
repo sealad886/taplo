@@ -47,7 +47,13 @@ reader.listen(async message => {
         }
       );
     }
-    taplo = await initPromise;
+    try {
+      taplo = await initPromise;
+    } catch (e) {
+      initPromise = undefined;
+      console.error(`taplo LSP failed to initialize: ${e}`);
+      return;
+    }
   }
 
   taplo.send(message as RpcMessage);
