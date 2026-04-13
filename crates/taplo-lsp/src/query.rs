@@ -434,11 +434,20 @@ pub fn lookup_keys(root: Node, keys: &Keys) -> Keys {
     let mut node = root;
     let mut new_keys = Keys::empty();
 
-    for key in keys.iter().cloned() {
-        node = node.get(&key);
-        new_keys = new_keys.join(key);
+    let keys_vec: Vec<_> = keys.iter().collect();
+    for (i, key) in keys_vec.iter().enumerate() {
+        node = node.get(*key);
+        new_keys = new_keys.join((*key).clone());
         if let Some(arr) = node.as_array() {
-            new_keys = new_keys.join(arr.items().read().len().saturating_sub(1));
+            // Only append an array index if the next key in the path isn't
+            // already an index — position_info_at already provides one for
+            // array-of-tables entries, and duplicating it breaks schema lookup.
+            let next_is_index = keys_vec
+                .get(i + 1)
+                .map_or(false, |k| matches!(k, KeyOrIndex::Index(_)));
+            if !next_is_index {
+                new_keys = new_keys.join(arr.items().read().len().saturating_sub(1));
+            }
         }
     }
 
@@ -454,6 +463,14 @@ pub struct PositionInfo {
 }
 
 fn full_range(keys: &Keys, node: &Node) -> TextRange {
+    if keys
+        .iter()
+        .last()
+        .is_none_or(|segment| matches!(segment, KeyOrIndex::Index(_)))
+    {
+        return join_ranges(node.text_ranges(true));
+    }
+
     let Some(last_key) = keys
         .iter()
         .filter_map(KeyOrIndex::as_key)
